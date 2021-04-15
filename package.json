@@ -21,15 +21,17 @@
   "license": "MIT",
   "main": "src/main.js",
   "scripts": {
+    "build": "ncc build src/main.js -o dist",
     "lint": "eslint src/main.js"
   },
   "dependencies": {
     "@actions/core": "1.2.7",
     "@actions/github": "3.0.0",
-    "istextorbinary": "5.12.0",
+    "istextorbinary": "git://github.com/leepa/istextorbinary#24da5d102351419734494fc052a0eb29fac54c61",
     "js-yaml": "3.14.1"
   },
   "devDependencies": {
+    "@vercel/ncc": "^0.28.3",
     "eslint": "7.9.0"
   }
 }
