@@ -1,15 +1,12 @@
 name: newline-action
-description: Automatically fixes files without a final new line in pull requests.
-author: Bruno Logerfo
+description: Find missing new lines on files
+author: Lee Packham
 
 branding:
   icon: file
   color: white
 
 inputs:
-  github-token:
-    description: The `GITHUB_TOKEN` secret.
-    required: true
   config-path:
     description: The optional configuration file path.
     default: .github/newline.yml

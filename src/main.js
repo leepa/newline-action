@@ -1,6 +1,4 @@
-const path = require("path"),
-    fs = require("fs").promises,
-    yaml = require("js-yaml"),
+const fs = require("fs").promises,
     util = require("util"),
     glob = util.promisify(require("glob")),
     { isText } = require('istextorbinary'),
@@ -8,51 +6,13 @@ const path = require("path"),
     github = require("@actions/github");
 
 const REPO_DIRECTORY = process.env["GITHUB_WORKSPACE"],
-    CONFIG_PATH = path.join(REPO_DIRECTORY, getInput("config-path", ".github/newline.yml")),
-    token = core.getInput("github-token", { required: true }),
+    token = process.env["GITHUB_TOKEN"],
     context = github.context,
     owner = context.repo.owner,
-    repo = context.repo.repo,
     client = new github.GitHub(token),
-    committer = {
-        name: 'GitHub Actions Bot',
-        email: '41898282+github-actions[bot]@users.noreply.github.com',
-    };
+    repo = context.repo.repo;
 
 const getEvent = async () => JSON.parse(await fs.readFile(process.env["GITHUB_EVENT_PATH"]));
-
-async function getYamlConfig() {
-    try {
-        const text = await fs.readFile(CONFIG_PATH);
-        return yaml.safeLoad(text);
-    }
-    catch (err) {
-        core.debug(err);
-        return undefined;
-    }
-}
-
-async function getConfig() {
-    const defaultConfig = {
-        autoCommit: true,
-        ignorePaths: [
-            "bin/**",
-            "node_modules/**",
-            "out/**",
-        ],
-    },
-        ymlConfig = await getYamlConfig(),
-        config = ymlConfig ? Object.assign(defaultConfig, ymlConfig) : defaultConfig;
-
-    core.info(ymlConfig ? "Config file loaded." : "Config file not found. Using default...");
-    core.debug(JSON.stringify(config));
-    return config;
-}
-
-function getInput(name, fallback) {
-    const input = core.getInput(name);
-    return input || fallback;
-}
 
 async function run() {
     try {
@@ -92,9 +52,8 @@ function getLineBreakChar(string) {
     return '\n';
 }
 
-async function processFiles(config) {
+async function processFiles() {
     const paths = await glob(`${REPO_DIRECTORY}/**`, {
-        ignore: config.ignorePaths.map(p => path.resolve(REPO_DIRECTORY, p)),
         nodir: true,
     }),
         files = [];
@@ -133,69 +92,14 @@ async function processFiles(config) {
     return files;
 }
 
-function generateMarkdownReport(results, autoCommit) {
+function generateMarkdownReport(results) {
     const ret = `
-${results.length} file(s) ${autoCommit ? "had their final line ending fixed" : "are missing a line break at their end"}:
+${results.length} file(s) are missing a line break at their end"}:
 ${results.map(function (element) {
         return `- \`${element}\`\n`;
     })}`;
     core.debug(ret);
     return ret;
-}
-
-async function convertToTreeBlobs(results) {
-    const blobs = [];
-    for (const path of results) {
-        const content = await fs.readFile(path, { encoding: "utf8" });
-        const blob = await client.git.createBlob({
-            content,
-            encoding: "utf8",
-            owner,
-            repo,
-        });
-        core.debug(JSON.stringify(blob.data));
-        blobs.push({
-            path: path.replace(REPO_DIRECTORY, ""),
-            mode: "100644",
-            sha: blob.data.sha,
-            type: "blob",
-        });
-    }
-    return blobs;
-}
-
-async function createCommit(results) {
-    const sha = context.payload.pull_request.head.sha;
-    const latestCommit = await client.git.getCommit({
-        commit_sha: sha,
-        owner,
-        repo,
-    });
-    core.debug(JSON.stringify(latestCommit.data));
-    const tree = await client.git.createTree({
-        base_tree: latestCommit.data.tree.sha,
-        owner,
-        repo,
-        tree: await convertToTreeBlobs(results),
-    });
-    core.debug(JSON.stringify(tree.data));
-    const commit = await client.git.createCommit({
-        author: committer,
-        message: "Fix final line endings",
-        owner,
-        repo,
-        tree: tree.data.sha,
-        parents: [sha],
-    });
-    core.debug(JSON.stringify(commit.data));
-    const event = await getEvent()
-    const update = await client.git.updateRef({
-        owner,
-        repo,
-        ref: `heads/${event.pull_request.head.ref}`,
-        sha: commit.data.sha,
-    });
-    core.debug(JSON.stringify(update.data));
 }
 
 async function createComment(body) {
@@ -209,25 +113,15 @@ async function createComment(body) {
 }
 
 async function push() {
-    const config = await getConfig();
-
     core.info("Locating files...");
-    const results = await processFiles(config);
+    const results = await processFiles();
     if (!results.length) {
         core.info("No compromised files found. Skipping...");
         return;
     }
 
     core.info("Generating markdown report...");
-    const markdown = generateMarkdownReport(results, config.autoCommit);
-
-    if (config.autoCommit) {
-        core.info("Committing files...");
-        await createCommit(results);
-    }
-    else {
-        core.info("Auto commit is disabled. Skipping...");
-    }
+    const markdown = generateMarkdownReport(results);
 
     core.info("Leaving comment on PR...");
     await createComment(markdown);
